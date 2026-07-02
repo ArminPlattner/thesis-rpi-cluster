@@ -1,0 +1,284 @@
+import os
+import json
+import time
+import sys
+import numpy as np
+from transformers import AutoTokenizer
+from confluent_kafka import Consumer, Producer
+import onnxruntime as ort
+
+# --- ARCHITECTURAL PATH AND TOPIC MAPS ---
+MODEL_PATH = "/home/ubuntu/ansible-intelligence/RPI_Cluster_Models/BSc_Thesis_V6_Quantized_Drainless"
+KAFKA_BOOTSTRAP = "10.42.0.184:32709"
+CONFIDENCE_THRESHOLD = 0.70
+IN_TOPIC = "ansible-anomalous"
+OUT_HEALABLE = "ansible-classified"
+OUT_MANUAL = "ansible-manual-intervention"
+
+# --- TELEMETRY TRACKER INFRASTRUCTURE ---
+TOTAL_EXPECTED_LOGS = 5000
+TOTAL_EXPECTED_ANOMALIES = 500
+
+metrics = {
+    "start_wall_time": None,
+    "end_wall_time": None,
+    "inference_latencies_ms": [],
+    "pure_processing_latencies_ms": [],  # Measures Gatekeeper extraction + Inference step
+    "e2e_pipeline_latencies_ms": [],     # Measures birth-timestamp to final publication latency
+    "correct_iac_classifications": 0,
+    "rule_distribution": {
+        "R12: Master Node Recovery": 0,
+        "LOG_UNRECOGNIZED (Safety Gate)": 0,
+        "R3: Controlled Service Restart": 0,
+        "R2: Rollback to last-known-good config": 0,
+        "R15: Repair File Permissions": 0,
+        "Manual Escalations": 0
+    }
+}
+
+# --- ENGINE ENVIRONMENTAL CHECKS ---
+if not os.path.exists(MODEL_PATH):
+    print(f"❌ Critical Error: Quantized ONNX weights path target unresolvable at {MODEL_PATH}")
+    sys.exit(1)
+
+print(f"📋 Extracting label indices maps from asset dictionary: {MODEL_PATH}...")
+with open(os.path.join(MODEL_PATH, "labels.json"), "r") as f:
+    labels_data = json.load(f)
+    iac_labels = labels_data["iac_labels"]
+    fault_labels = labels_data["fault_labels"]
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+onnx_files = [f for f in os.listdir(MODEL_PATH) if f.endswith(".onnx")]
+if not onnx_files:
+    raise FileNotFoundError(f"Missing base .onnx model mapping file inside target framework directory.")
+weights_file = os.path.join(MODEL_PATH, onnx_files[0])
+
+# --- ONNX PERFORMANCE TUNING FOR RASPBERRY PI CORTEX-A72 ---
+sess_options = ort.SessionOptions()
+sess_options.intra_op_num_threads = 2
+sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+session = ort.InferenceSession(weights_file, sess_options, providers=["CPUExecutionProvider"])
+print(f"✅ Micro-orchestration Quantized INT8 engine successfully map-bound.")
+
+# --- INLINE MATHEMATICS & RECOVERY LOGIC HELPERS ---
+def clean_log_drainless(log_line):
+    lines = str(log_line).splitlines()
+    filtered = [line.strip() for line in lines if line.strip()]
+    return " ".join(filtered).replace('""', '"')
+
+def get_sub_system(text):
+    t = text.lower()
+    if any(k in t for k in ["mysql", "mariadb", "postgres", "sqlite", "database"]): 
+        return "Storage System"
+    if any(k in t for k in ["port", "tcp", "bind", "address", "dhcp", "ip", "ssh"]): 
+        return "Network Setup"
+    if any(k in t for k in ["permission", "chmod", "chown", "directory", "path"]): 
+        return "File System"
+    return "General Infrastructure"
+
+def softmax(x):
+    x = x - np.max(x, axis=-1, keepdims=True)
+    ex = np.exp(x)
+    return ex / ex.sum(axis=-1, keepdims=True)
+
+def predict_with_safety_gate(raw_log, model_input):
+    infer_start_ns = time.perf_counter_ns()
+
+    inputs = tokenizer(model_input, truncation=True, padding="max_length", max_length=256, return_tensors="np")
+    onnx_inputs = {
+        "input_ids": inputs["input_ids"].astype(np.int64),
+        "attention_mask": inputs["attention_mask"].astype(np.int64)
+    }
+
+    outputs = session.run(None, onnx_inputs)
+    probs_iac = softmax(outputs[0][0])
+    probs_fault = softmax(outputs[1][0])
+
+    inference_ms = (time.perf_counter_ns() - infer_start_ns) / 1e6
+
+    iac_idx = int(np.argmax(probs_iac))
+    fault_idx = int(np.argmax(probs_fault))
+
+    iac_cat = iac_labels[iac_idx]
+    iac_conf = float(probs_iac[iac_idx])
+    fault_cat = fault_labels[fault_idx]
+    fault_conf = float(probs_fault[fault_idx])
+
+    is_healable = True
+    reason = "High confidence autonomic match"
+    manual_faults = ["Typos", "Variable Misreference", "Incorrect Task Iteration Logic"]
+
+    if iac_cat in ["Syntax", "Documentation"] or fault_cat in manual_faults:
+        is_healable = False
+        reason = f"Manual Intervention Required: {fault_cat}"
+    elif iac_conf < CONFIDENCE_THRESHOLD:
+        is_healable = False
+        reason = f"Uncertain Classification (Conf: {iac_conf:.2f})"
+
+    return {
+        "raw_log": raw_log, "iac_category": iac_cat, "iac_confidence": iac_conf,
+        "fault_category": fault_cat, "fault_confidence": fault_conf,
+        "sub_system": get_sub_system(model_input), "is_healable": is_healable,
+        "escalation_reason": reason, "inference_ms": inference_ms
+    }
+
+def print_thesis_report():
+    """Outputs structured metric analysis arrays formatted for direct academic conversion."""
+    total_pipeline_time = metrics["end_wall_time"] - metrics["start_wall_time"]
+    mean_latency = np.mean(metrics["inference_latencies_ms"])
+    throughput = TOTAL_EXPECTED_ANOMALIES / total_pipeline_time
+    success_rate = (metrics["correct_iac_classifications"] / TOTAL_EXPECTED_ANOMALIES) * 100
+
+    avg_e2e = np.mean(metrics["e2e_pipeline_latencies_ms"])
+    min_e2e = np.min(metrics["e2e_pipeline_latencies_ms"])
+    max_e2e = np.max(metrics["e2e_pipeline_latencies_ms"])
+
+    avg_pure = np.mean(metrics["pure_processing_latencies_ms"])
+    min_pure = np.min(metrics["pure_processing_latencies_ms"])
+    max_pure = np.max(metrics["pure_processing_latencies_ms"])
+
+    print("\n\n" + "="*60)
+    print("📈 GENERATED THESIS METRICS REPORT (EXPERIMENT 5 SYSTEM BURST VALIDATION)")
+    print("="*60)
+    
+    print(f"\n### System Test Performance Attributes\n")
+    print(f"| Metric | Value | Statistical Scale / Context |")
+    print(f"| :--- | :--- | :--- |")
+    print(f"| Total Ingested Logs Workload | {TOTAL_EXPECTED_LOGS:,} | Combined Stream Volumetrics |")
+    print(f"| Anomalies Intercepted (Gatekeeper) | {TOTAL_EXPECTED_ANOMALIES} | Filtered Ingress Yield |")
+    print(f"| Total Pipeline Processing Time | {total_pipeline_time:.2f} seconds | Macro Wall Clock Duration |")
+    print(f"| System Throughput Efficiency | {throughput:.2f} anomalies/sec | Effective Evaluation Velocity |")
+    print(f"| Mean Inference Latency (Pi 3 Cores) | {mean_latency:.2f} ms | Model Base Footprint Execution |")
+    print(f"| Classification Evaluation Accuracy | {success_rate:.1f}% | Quantized Real-World Profile |")
+
+    print(f"\n### Advanced Metrology Latency Profiles (Ingestion to Output Classification Queue)\n")
+    print(f"| Latency Metric Target | Minimum Value | Average Value | Maximum Value |")
+    print(f"| :--- | :---: | :---: | :---: |")
+    print(f"| **True E2E Pipeline Latency** | {min_e2e:,.2f} ms | {avg_e2e:,.2f} ms | {max_e2e:,.2f} ms |")
+    print(f"| **Pure Processing Latency** | {min_pure:.2f} ms | {avg_pure:.2f} ms | {max_pure:.2f} ms |")
+
+    print(f"\n### Autonomic Self-Healing Orchestration Distribution Mapping\n")
+    print(f"| Action / Rule Engine Mapping | Count | Total Contribution |")
+    print(f"| :--- | :---: | :---: |")
+    for rule, count in metrics["rule_distribution"].items():
+        contrib = (count / TOTAL_EXPECTED_ANOMALIES) * 100
+        print(f"| {rule} | {count} | {contrib:.1f}% |")
+    print(f"| **TOTAL** | **{TOTAL_EXPECTED_ANOMALIES}** | **100.0%** |")
+    print("="*60 + "\n")
+
+# --- INITIALIZE KAFKA INTEGRATION MANAGEMENT ---
+consumer = Consumer({
+    "bootstrap.servers": KAFKA_BOOTSTRAP, 
+    "group.id": f"brain-burst-validation-v5-{int(time.time())}", 
+    "auto.offset.reset": "earliest"
+})
+producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
+consumer.subscribe([IN_TOPIC])
+
+print(f"📡 Intelligent Engine tracking initialized. Evaluating filtered anomalies from {IN_TOPIC} using model {MODEL_PATH}...")
+
+# --- PROCESSING WIRE STREAM LIFECYCLE ---
+try:
+    processed_count = 0
+    while True:
+        msg = consumer.poll(1.0)
+        if msg is None: 
+            continue
+        if msg.error():
+            continue
+
+        t_arrive_ns = time.time_ns()
+        payload = json.loads(msg.value().decode("utf-8"))
+
+        if metrics["start_wall_time"] is None:
+            metrics["start_wall_time"] = payload.get("timestamp", time.time())
+
+        raw_log = payload["raw_log"]
+        true_iac = payload.get("true_iac", "Unknown")
+
+        # Synchronize payload transmission timeline
+        t_send_seconds = payload.get("timestamp", time.time())
+        t_send_ns = int(t_send_seconds * 1e9)
+        msg_id = payload.get("msg_id", "no-id")
+
+        # Execution Phase
+        model_input = clean_log_drainless(raw_log)
+        analysis = predict_with_safety_gate(raw_log, model_input)
+
+        # Bookkeeping Telemetry Arrays
+        metrics["inference_latencies_ms"].append(analysis["inference_ms"])
+
+        if analysis["iac_category"] == true_iac:
+            metrics["correct_iac_classifications"] += 1
+
+        # Safe Induction Rule Mapping Configuration
+        if not analysis["is_healable"]:
+            if "Uncertain" in analysis["escalation_reason"]:
+                metrics["rule_distribution"]["LOG_UNRECOGNIZED (Safety Gate)"] += 1
+            else:
+                metrics["rule_distribution"]["Manual Escalations"] += 1
+        else:
+            cat = analysis["iac_category"]
+            if cat == "Service": 
+                metrics["rule_distribution"]["R3: Controlled Service Restart"] += 1
+            elif cat == "Idempotency": 
+                metrics["rule_distribution"]["R2: Rollback to last-known-good config"] += 1
+            elif cat == "Security": 
+                metrics["rule_distribution"]["R15: Repair File Permissions"] += 1
+            elif cat == "Dependency": 
+                metrics["rule_distribution"]["R12: Master Node Recovery"] += 1
+            else: 
+                metrics["rule_distribution"]["Manual Escalations"] += 1
+
+        t_publish_start_ns = time.time_ns()
+        queue_to_arrival_ms = (t_arrive_ns - t_send_ns) / 1e6
+        processing_ms = (t_publish_start_ns - t_arrive_ns) / 1e6
+
+        analysis.update({
+            "msg_id": msg_id, "t_send_ns": t_send_ns, "t_arrive_ns": t_arrive_ns,
+            "queue_to_arrival_ms": queue_to_arrival_ms, "processing_ms": processing_ms
+        })
+
+        target_topic = OUT_HEALABLE if analysis["is_healable"] else OUT_MANUAL
+        analysis["target_topic"] = target_topic
+
+        producer.produce(target_topic, json.dumps(analysis).encode("utf-8"))
+        producer.flush()
+
+        t_publish_end_ns = time.time_ns()
+
+        full_pipeline_ms = (t_publish_end_ns - t_send_ns) / 1e6
+        pure_node_execution_ms = (t_publish_end_ns - t_arrive_ns) / 1e6
+
+        metrics["e2e_pipeline_latencies_ms"].append(full_pipeline_ms)
+        metrics["pure_processing_latencies_ms"].append(pure_node_execution_ms)
+
+        # --- LIVE PROGRESS VISUALIZER ---
+        processed_count += 1
+        if processed_count % 50 == 0 or processed_count == TOTAL_EXPECTED_ANOMALIES:
+            sys.stdout.write(f"\r⚡ Evaluated Anomaly Payload Buffer: [{processed_count}/{TOTAL_EXPECTED_ANOMALIES}] ({ (processed_count/TOTAL_EXPECTED_ANOMALIES)*100:.0f}%)")
+            sys.stdout.flush()
+
+        # Evaluation completeness breakpoint check
+        if len(metrics["inference_latencies_ms"]) >= TOTAL_EXPECTED_ANOMALIES:
+            print("\n\n🏁 Targeted workload reached. Compiling metrics profile...")
+            metrics["end_wall_time"] = time.time()
+            print_thesis_report()
+
+            # Purge cluster node loop states to allow subsequent experimental passes
+            processed_count = 0
+            metrics["start_wall_time"] = None
+            metrics["inference_latencies_ms"] = []
+            metrics["pure_processing_latencies_ms"] = []
+            metrics["e2e_pipeline_latencies_ms"] = []
+            metrics["correct_iac_classifications"] = 0
+            for k in metrics["rule_distribution"]: 
+                metrics["rule_distribution"][k] = 0
+
+except KeyboardInterrupt:
+    print("\n🛑 Execution profile interrupted manually. Tearing down stream connections...")
+finally:
+    consumer.close()
+    print("✅ Inference pipeline offline.")

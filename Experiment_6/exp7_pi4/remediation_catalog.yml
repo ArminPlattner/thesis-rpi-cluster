@@ -1,0 +1,174 @@
+---
+# Autonomic Edge Remediation Catalog — R1 through R7
+# Target: pi1 (K3s master + log ingestion node)
+# Called by pi4_healer.py with --extra-vars "target_rule=RX"
+#
+# Privilege ordering (least → most):
+#   R1  User/app space   — iptables INPUT rule
+#   R2  Service config   — file revert + k3s reload
+#   R3  Service daemon   — k3s controlled restart
+#   R4  Orchestration    — kubectl scale / delete pod
+#   R5  Orchestration    — kubectl cordon + drain
+#   R6  Filesystem       — shell prune of logs + /tmp
+#   R7  Orchestration    — kubectl evict + PVC patch
+
+- name: "Autonomic Edge Remediation Catalog (Target: pi1)"
+  hosts: pi1
+  become: yes
+  gather_facts: no
+
+  vars:
+    r4_target_deployment: "workload-stress"
+    r4_current_replicas: 1
+    r4_namespace: "default"
+    r7_pvc_name: "app-data-pvc"
+    r7_namespace: "default"
+    r7_new_size: "4Gi"
+
+  tasks:
+    - name: "Assert target_rule is provided"
+      ansible.builtin.assert:
+        that:
+          - target_rule is defined
+          - target_rule in ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7']
+        fail_msg: "You must pass --extra-vars 'target_rule=R1..R7'."
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # R1 — Security / SSH Brute-Force
+    # ─────────────────────────────────────────────────────────────────────────
+    - name: "[R1] SSH brute-force — block offending IP at INPUT chain"
+      ansible.builtin.iptables:
+        chain: INPUT
+        source: "192.168.99.99"
+        jump: DROP
+        comment: "Autonomic healer R1 — SSH brute-force mitigation"
+      when: target_rule == "R1"
+
+    - name: "[R1] SSH brute-force — persist iptables rule across reboots"
+      ansible.builtin.shell: |
+        mkdir -p /etc/iptables
+        iptables-save > /etc/iptables/rules.v4
+      args:
+        executable: /bin/bash
+      when: target_rule == "R1"
+      ignore_errors: yes
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # R2 — Configuration / Config Drift
+    # ─────────────────────────────────────────────────────────────────────────
+    - name: "[R2] Config drift — revert config file from golden backup"
+      ansible.builtin.copy:
+        src: /opt/backup/k3s-config-golden.yaml
+        dest: /etc/rancher/k3s/config.yaml
+        mode: "0600"
+        remote_src: yes
+      when: target_rule == "R2"
+
+    - name: "[R2] Config drift — restart k3s to apply reverted config"
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+        daemon_reload: yes
+      when: target_rule == "R2"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # R3 — Availability / Service Down
+    # ─────────────────────────────────────────────────────────────────────────
+    - name: "[R3] Service down — controlled k3s restart"
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+      when: target_rule == "R3"
+
+    - name: "[R3] Service down — write degraded marker for observability"
+      ansible.builtin.copy:
+        content: "degraded since {{ ansible_date_time.iso8601 | default('unknown') }}"
+        dest: /var/run/node-degraded.flag
+        mode: "0644"
+      when: target_rule == "R3"
+      ignore_errors: yes
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # R4 — Performance / Sustained High CPU
+    # ─────────────────────────────────────────────────────────────────────────
+    - name: "[R4] High CPU — identify most resource-intensive deployment"
+      ansible.builtin.command: >
+        kubectl top pods --all-namespaces
+        --sort-by=cpu --no-headers
+      register: r4_top_pods
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      when: target_rule == "R4"
+      failed_when: false
+
+    - name: "[R4] High CPU — scale target deployment up by 1 replica"
+      ansible.builtin.command: >
+        kubectl scale deployment {{ r4_target_deployment }}
+        --replicas={{ r4_current_replicas | int + 1 }}
+        -n {{ r4_namespace }}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      when: target_rule == "R4"
+      ignore_errors: yes
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # R5 — Performance / Critical CPU Saturation
+    # ─────────────────────────────────────────────────────────────────────────
+    - name: "[R5] Critical CPU — cordon the saturated node"
+      ansible.builtin.command: kubectl cordon {{ inventory_hostname }}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      when: target_rule == "R5"
+      ignore_errors: yes
+
+    - name: "[R5] Critical CPU — drain pods from cordoned node (grace 30 s)"
+      ansible.builtin.command: >
+        kubectl drain {{ inventory_hostname }}
+        --ignore-daemonsets
+        --delete-emptydir-data
+        --grace-period=30
+        --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      when: target_rule == "R5"
+      ignore_errors: yes
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # R6 — Capacity / Low Disk Space
+    # ─────────────────────────────────────────────────────────────────────────
+    - name: "[R6] Low disk — remove log files older than 7 days"
+      ansible.builtin.shell: |
+        find /var/log -type f -name "*.log" -mtime +7 -delete
+        find /var/log -type f -name "*.gz"  -mtime +3 -delete
+        journalctl --vacuum-time=7d --vacuum-size=200M
+      args:
+        executable: /bin/bash
+      when: target_rule == "R6"
+      ignore_errors: yes
+
+    - name: "[R6] Low disk — purge /tmp files older than 1 day"
+      ansible.builtin.shell: find /tmp -type f -mtime +1 -delete
+      when: target_rule == "R6"
+      ignore_errors: yes
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # R7 — Capacity / Critical Disk Space
+    # ─────────────────────────────────────────────────────────────────────────
+    - name: "[R7] Critical disk — extra log prune"
+      ansible.builtin.shell: |
+        find /var/log -type f -name "*.log" -mtime +1 -delete
+        find /tmp -type f -mtime +0 -delete
+        journalctl --vacuum-size=100M
+      args:
+        executable: /bin/bash
+      when: target_rule == "R7"
+      ignore_errors: yes
+
+    - name: "[R7] Critical disk — force restart pods to clear ephemeral cache"
+      ansible.builtin.shell: |
+        kubectl delete pods --all -n default --grace-period=0 --force
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      when: target_rule == "R7"
+      register: r7_restart
+      changed_when: r7_restart.rc == 0

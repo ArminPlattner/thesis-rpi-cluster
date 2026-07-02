@@ -1,0 +1,124 @@
+---
+# Fault Injection Playbook — Experiment 6 Setup
+# ================================================
+# Pi1 runs this before each isolated MTTR trial to place pi1 into a
+# well-defined broken state that the corresponding remediation rule repairs.
+# Each task group is tagged with the rule it sets up.
+
+- name: "Fault Injection — RQ3 Experiment 6 (Target: pi1)"
+  hosts: pi1
+  become: yes
+  gather_facts: no
+  tasks:
+
+    # ── R1: SSH Brute-Force ──────────────────────────────────────────────────
+    # Simulate an active attacker entry in auth.log by flooding failed logins.
+    - name: "[INJECT-R1] Simulate SSH brute-force — generate failed-login log entries"
+      ansible.builtin.shell: |
+        for i in $(seq 1 25); do
+          echo "$(date '+%b %d %H:%M:%S') pi1 sshd[$$]: Failed password for invalid user \
+attacker from 192.168.99.99 port $((50000+$i)) ssh2" >> /var/log/auth.log
+        done
+      args:
+        executable: /bin/bash
+      tags: [r1_ssh_bruteforce]
+
+    - name: "[INJECT-R1] Ensure attacker IP is NOT already blocked (clean state)"
+      ansible.builtin.iptables:
+        chain:  INPUT
+        source: "192.168.99.99"
+        jump:   DROP
+        state:  absent
+      tags: [r1_ssh_bruteforce]
+      ignore_errors: yes
+
+    # ── R2: Config Drift ─────────────────────────────────────────────────────
+    # Corrupt the k3s config file so R2 has something to revert.
+    - name: "[INJECT-R2] Back up golden config if not already present"
+      ansible.builtin.copy:
+        src:        /etc/rancher/k3s/config.yaml
+        dest:       /opt/backup/k3s-config-golden.yaml
+        remote_src: yes
+        force:      no
+      tags: [r2_config_drift]
+      ignore_errors: yes
+
+    - name: "[INJECT-R2] Introduce config drift — append invalid stanza"
+      ansible.builtin.lineinfile:
+        path:   /etc/rancher/k3s/config.yaml
+        line:   "# DRIFT_INJECTED: invalid-option: true"
+        state:  present
+      tags: [r2_config_drift]
+      ignore_errors: yes
+
+    # ── R3: Service Down ─────────────────────────────────────────────────────
+    # Stop k3s so R3 can restart it.
+    - name: "[INJECT-R3] Stop k3s service to simulate service outage"
+      ansible.builtin.systemd:
+        name:  k3s
+        state: stopped
+      tags: [r3_service_down]
+      ignore_errors: yes
+
+    # ── R4: High CPU ─────────────────────────────────────────────────────────
+    # Launch a CPU stress background process.
+    - name: "[INJECT-R4] Spawn CPU stress process (60 s background)"
+      ansible.builtin.shell: |
+        nohup stress-ng --cpu 2 --timeout 60 &>/dev/null &
+        echo "stress-ng PID: $!"
+      args:
+        executable: /bin/bash
+      tags: [r4_high_cpu]
+      ignore_errors: yes    # stress-ng may not be installed; healer will still exercise kubectl
+
+    # ── R5: Critical CPU ─────────────────────────────────────────────────────
+    # Uncordon pi1 first so R5 can cordon it again cleanly.
+    - name: "[INJECT-R5] Uncordon pi1 to reset node scheduling state"
+      ansible.builtin.command: kubectl uncordon pi1
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      tags: [r5_critical_cpu]
+      ignore_errors: yes
+
+    - name: "[INJECT-R5] Spawn CPU stress (critical level — 4 workers)"
+      ansible.builtin.shell: |
+        nohup stress-ng --cpu 4 --timeout 90 &>/dev/null &
+      args:
+        executable: /bin/bash
+      tags: [r5_critical_cpu]
+      ignore_errors: yes
+
+    # ── R6: Low Disk ─────────────────────────────────────────────────────────
+    # Create large dummy log files to push disk usage above 80 % threshold.
+    - name: "[INJECT-R6] Create large dummy log files to simulate disk pressure"
+      ansible.builtin.shell: |
+        mkdir -p /var/log/inject_r6
+        for i in 1 2 3; do
+          dd if=/dev/zero of=/var/log/inject_r6/dummy_${i}.log bs=1M count=50 \
+            2>/dev/null
+        done
+      args:
+        executable: /bin/bash
+      tags: [r6_low_disk]
+      ignore_errors: yes
+
+    # ── R7: Critical Disk ────────────────────────────────────────────────────
+    # Larger dummy files than R6 to simulate >90 % usage.
+    - name: "[INJECT-R7] Create large dummy files to simulate critical disk pressure"
+      ansible.builtin.shell: |
+        mkdir -p /var/log/inject_r7
+        for i in 1 2 3 4 5; do
+          dd if=/dev/zero of=/var/log/inject_r7/critical_${i}.log bs=1M count=100 \
+            2>/dev/null
+        done
+      args:
+        executable: /bin/bash
+      tags: [r7_critical_disk]
+      ignore_errors: yes
+
+    - name: "[INJECT-R7] Remove inject_r6 leftovers to avoid double counting"
+      ansible.builtin.file:
+        path:  /var/log/inject_r6
+        state: absent
+      tags: [r7_critical_disk]
+      ignore_errors: yes

@@ -1,0 +1,8 @@
+# For 100 logs
+python3 inference_engine_exp4.py 100
+
+# For 500 logs
+python3 inference_engine_exp4.py 500
+
+# For 1000 logs
+python3 inference_engine_exp4.py 1000

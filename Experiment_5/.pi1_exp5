@@ -1,0 +1,124 @@
+import os
+import time
+import json
+import random
+import pandas as pd
+from confluent_kafka import Producer
+
+# --- CONFIGURATION CONSTANTS ---
+RAW_DATA_PATH = "ansible_thesis_final_v4.csv"
+KAFKA_BOOTSTRAP = "10.42.0.184:32709"
+IN_TOPIC = "ansible-raw-logs"
+
+TOTAL_LOGS = 5000
+ANOMALOUS_COUNT = 500
+SUCCESSFUL_COUNT = 4500
+
+def generate_successful_logs(count):
+    """
+    Generates realistic nominal operational logs.
+    Ensures structural signatures explicitly match the Gatekeeper's rule matrix.
+    """
+    hosts = [
+        "web-node-01", "web-node-02", "db-srv-main-01", "db-srv-replica-01", 
+        "app-k3s-worker-01", "app-k3s-worker-04", "lb-haproxy", "storage-nas"
+    ]
+    tasks = [
+        "Gathering Facts", 
+        "Ensure nginx is installed", 
+        "Copy application configuration",
+        "Restart systemd daemon",
+        "Verify database connectivity",
+        "Check system memory bounds",
+        "Sync internal cluster clock networks"
+    ]
+    
+    # Balance background noise types across actual Ansible status boundaries
+    status_types = ["ok", "changed", "skipping"]
+    successful_logs = []
+    stars = "*" * 60
+
+    for _ in range(count):
+        task = random.choice(tasks)
+        host = random.choice(hosts)
+        status = random.choice(status_types)
+        
+        # Construct standard task banner line followed by structural status lines
+        if status == "ok":
+            line = f"TASK [{task}] {stars}\nok: [{host}] => {{\n  \"changed\": false,\n  \"ping\": \"pong\"\n}}"
+        elif status == "changed":
+            line = f"TASK [{task}] {stars}\nchanged: [{host}] => {{\n  \"changed\": true,\n  \"rc\": 0\n}}"
+        elif status == "skipping":
+            line = f"TASK [{task}] {stars}\nskipping: [{host}] => {{\n  \"skipped\": true,\n  \"msg\": \"Conditional check assertion pass\"\n}}"
+            
+        successful_logs.append(line)
+    return successful_logs
+
+# --- EXECUTION LIFECYCLE ---
+print("📦 Loading raw anomaly evaluation dataset...")
+if not os.path.exists(RAW_DATA_PATH):
+    raise FileNotFoundError(f"Missing base dataset file: {RAW_DATA_PATH}. Make sure it is inside the folder.")
+
+df_raw = pd.read_csv(RAW_DATA_PATH)
+
+print("🔄 Building telemetry-enriched evaluations stream matrix...")
+replace_flag = True if len(df_raw) < ANOMALOUS_COUNT else False
+anomalous_sampled = df_raw.sample(n=ANOMALOUS_COUNT, replace=replace_flag)
+
+workload_stream = []
+
+# Phase A: Inject anomalies tagged with evaluation attributes
+for _, row in anomalous_sampled.iterrows():
+    workload_stream.append({
+        "raw_log": str(row['log']),
+        "is_anomaly": True,
+        "true_iac": str(row['iac_category']),
+        "true_fault": str(row['fault_category'])
+    })
+
+# Phase B: Inject structural normal logs
+successful_pool = generate_successful_logs(SUCCESSFUL_COUNT)
+for log_line in successful_pool:
+    workload_stream.append({
+        "raw_log": log_line,
+        "is_anomaly": False,
+        "true_iac": "Normal",
+        "true_fault": "Normal"
+    })
+
+# Phase C: High-entropy shuffle to ensure anomalies are buried inside background noise
+random.shuffle(workload_stream)
+
+# --- INITIALIZE KAFKA WIRE PIPELINE ---
+print(f"📡 Connecting to Kafka broker node target... [{KAFKA_BOOTSTRAP}]")
+producer_config = {
+    "bootstrap.servers": KAFKA_BOOTSTRAP, 
+    "linger.ms": 5,                 # Allow batch buffering for burst efficiency
+    "compression.type": "lz4"       # Low-overhead compression ideal for ARM nodes
+}
+producer = Producer(producer_config)
+
+print(f"\n🚀 Firing inline burst load stream: Ingesting {TOTAL_LOGS:,} records into [{IN_TOPIC}]...")
+start_time = time.time()
+
+for idx, item in enumerate(workload_stream):
+    payload = {
+        "msg_id": f"TX-5000-{(idx+1):04d}",
+        "timestamp": time.time(),
+        "raw_log": item["raw_log"],
+        "true_iac": item["true_iac"],       # Target verification flag
+        "true_fault": item["true_fault"]     # Target verification flag
+    }
+    
+    producer.produce(IN_TOPIC, json.dumps(payload).encode("utf-8"))
+    
+    # Intermittent processing yield to prevent internal buffer saturation on ARM
+    if idx % 500 == 0:
+        producer.poll(0)
+
+# Block thread lifecycle execution until all payloads clear wire transmission queue
+producer.flush()
+
+duration = time.time() - start_time
+print(f"\n✅ Ingestion cycle successfully terminated in {duration:.2f} seconds.")
+print(f"📈 Network pipeline velocity rate: {TOTAL_LOGS / duration:.2f} messages/sec.")

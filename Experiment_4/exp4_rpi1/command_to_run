@@ -1,0 +1,8 @@
+# For 100 logs
+python3 100_500_1000_logs.py 100 --delay 5.0
+
+#For 500 logs
+python3 100_500_1000_logs.py 500 --delay 5.0
+
+# For 1000 logs
+python3 100_500_1000_logs.py 1000 --delay 5.0

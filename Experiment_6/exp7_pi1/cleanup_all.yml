@@ -1,0 +1,56 @@
+---
+# Cleanup Playbook — Factory Reset for Experiment 6
+# ================================================
+# Ensures pi1 is returned to a clean, default state before the next fault injection.
+
+- name: "Full System Cleanup (pi1)"
+  hosts: pi1
+  become: yes
+  gather_facts: no
+  tasks:
+
+    # 1. R1: Remove IPTables block
+    - name: "[CLEANUP-R1] Remove SSH block"
+      ansible.builtin.iptables:
+        chain: INPUT
+        source: "192.168.99.99"
+        jump: DROP
+        state: absent
+      ignore_errors: yes
+
+    # 2. R2: Restore golden config
+    - name: "[CLEANUP-R2] Restore golden k3s config"
+      ansible.builtin.copy:
+        src: /opt/backup/k3s-config-golden.yaml
+        dest: /etc/rancher/k3s/config.yaml
+        remote_src: yes
+      ignore_errors: yes
+
+    # 3. R3: Start k3s service
+    - name: "[CLEANUP-R3] Ensure k3s is running"
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+      ignore_errors: yes
+
+    # 4. R4 & R5: Kill stress-ng processes
+    - name: "[CLEANUP-R4/R5] Terminate stress-ng processes"
+      ansible.builtin.shell: "pkill stress-ng"
+      ignore_errors: yes
+
+    # 5. R6 & R7: Clean disk pressure
+    - name: "[CLEANUP-R6/R7] Remove dummy log/temp files"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/log/inject_r6
+        - /var/log/inject_r7
+      ignore_errors: yes
+
+    # 6. Final check: Ensure k3s is healthy (Post-cleanup verification)
+    - name: "[VERIFY] Check node status"
+      ansible.builtin.command: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      ignore_errors: yes
