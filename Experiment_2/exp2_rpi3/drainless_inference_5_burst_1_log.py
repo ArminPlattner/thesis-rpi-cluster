@@ -83,7 +83,7 @@ def predict_with_safety_gate(raw_log):
 
     is_healable = True
     reason = "High confidence autonomic match"
-    manual_faults = ["Typos", "Variable Misreference", "Incorrect Task Iteration Logic"]
+    manual_faults = ["Typos"]
 
     if iac_cat in ["Syntax", "Documentation"] or fault_cat in manual_faults:
         is_healable = False

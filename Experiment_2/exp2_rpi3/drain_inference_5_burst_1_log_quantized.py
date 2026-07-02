@@ -95,7 +95,7 @@ def predict_with_safety_gate(raw_log, model_input):
     fault_idx = int(np.argmax(probs_fault))
     
     is_healable = True
-    manual_faults = ["Typos", "Variable Misreference", "Incorrect Task Iteration Logic"]
+    manual_faults = ["Typos"]
     reason = "High confidence autonomic match"
 
     if iac_labels[iac_idx] in ["Syntax", "Documentation"] or fault_labels[fault_idx] in manual_faults:
