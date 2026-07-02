@@ -1,0 +1,979 @@
+"Error Type","Error message",Cause,Fix,Code
+"WinRM Module Not Installed","wInrm or requests Is not Installed: No module named 'winrm' ","The pywinrm Python library is not installed on the Ansible controller.","Install pywinrm using pip on the Ansible controller machine.","# Install pywinrm on Ansible controller
+pip install pywinrm
+
+# Or with requests-kerberos for domain auth
+pip install pywinrm[kerberos]
+
+# Verify installation
+python -c ""import winrm; print('pywinrm installed successfully')"""
+"WinRM SSL Certificate Error","ssl: CERTIFICATE_VERIFY_FAILED","WinRM is using a self-signed certificate that cannot be verified.","Either configure a valid certificate or disable certificate validation (for testing only).","# Option 1: Ignore certificate (ansible.cfg or inventory)
+[defaults]
+# In ansible.cfg
+[winrm_connection]
+server_cert_validation = ignore
+
+# Option 2: In inventory file
+[windows:vars]
+ansible_winrm_server_cert_validation=ignore
+ansible_winrm_transport=ntlm
+
+# Option 3: Use HTTP instead of HTTPS (less secure)
+ansible_winrm_scheme=http
+ansible_port=5985"
+"WinRM Connection Refused","Connection refused on port 5986","WinRM service is not running or firewall is blocking the connection.","Enable and configure WinRM on the Windows target.","# Run on Windows target (PowerShell as Admin)
+Enable-PSRemoting -Force
+winrm quickconfig -q
+winrm set winrm/config/service '@{AllowUnencrypted=""true""}'
+winrm set winrm/config/service/auth '@{Basic=""true""}'
+
+# Open firewall ports
+netsh advfirewall firewall add rule name=""WinRM-HTTP"" dir=in localport=5985 protocol=TCP action=allow
+netsh advfirewall firewall add rule name=""WinRM-HTTPS"" dir=in localport=5986 protocol=TCP action=allow"
+"SSH Host Key Verification Failed","Host key verification failed","The SSH host key is unknown or has changed since last connection.","Accept the host key or disable host key checking.","# Option 1: Add to ansible.cfg
+[defaults]
+host_key_checking = False
+
+# Option 2: Environment variable
+export ANSIBLE_HOST_KEY_CHECKING=False
+
+# Option 3: Add host key first
+ssh-keyscan -H your_host >> ~/.ssh/known_hosts
+
+# Option 4: Command line
+ansible-playbook -i inventory playbook.yml --ssh-extra-args='-o StrictHostKeyChecking=no'"
+"SSH Permission Denied","Permission denied (publickey, password)","SSH key is not authorized or wrong credentials provided.","Ensure SSH key is properly configured or provide correct password.","# Check your SSH key path in inventory
+[servers]
+server1 ansible_host=192.168.1.10 ansible_user=admin ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+# Copy SSH key to target
+ssh-copy-id -i ~/.ssh/id_rsa.pub user@target_host
+
+# Verify SSH key permissions
+chmod 600 ~/.ssh/id_rsa
+chmod 644 ~/.ssh/id_rsa.pub
+chmod 700 ~/.ssh"
+"SSH Connection Timeout","Connection timed out during connect","Network issue, firewall blocking, or host is unreachable.","Check network connectivity and firewall rules.","# Test basic connectivity
+ping target_host
+
+# Test SSH port
+nc -zv target_host 22
+
+# Increase timeout in ansible.cfg
+[defaults]
+timeout = 60
+
+[ssh_connection]
+ssh_args = -o ConnectTimeout=60"
+"Jinja2 Template Syntax Error","template error while templating string: unexpected character","Invalid Jinja2 syntax, often using JavaScript-style ternary operator.","Use Ansible's ternary filter instead of ? : syntax.","# WRONG - JavaScript-style ternary
+{{ env == 'dev' ? 'localhost' : 'production-db' }}
+
+# CORRECT - Ansible ternary filter
+{{ (env == 'dev') | ternary('localhost', 'production-db') }}
+
+# Alternative - if/else expression
+{{ 'localhost' if env == 'dev' else 'production-db' }}"
+"Undefined Variable Error","AnsibleUndefinedVariable: 'variable_name' is undefined","Variable is referenced but not defined in vars, inventory, or passed.","Define the variable or use the default filter.","# Use default filter to handle undefined
+{{ my_var | default('fallback_value') }}
+
+# Use default with omit for optional parameters
+some_param: ""{{ optional_var | default(omit) }}""
+
+# Check if variable is defined
+- name: Task with condition
+  debug:
+    msg: ""Variable is {{ my_var }}""
+  when: my_var is defined"
+"Missing sudo/become Password","Missing sudo password","Privilege escalation requires password but none was provided.","Provide become password or configure passwordless sudo.","# Option 1: Prompt for password
+ansible-playbook playbook.yml --ask-become-pass
+
+# Option 2: Configure passwordless sudo on target
+# Add to /etc/sudoers.d/ansible_user
+ansible_user ALL=(ALL) NOPASSWD: ALL"
+"Module Not Found Error","couldn't resolve module/action","The module is not installed or the collection is missing.","Install the required Ansible collection.","# Install specific collection
+ansible-galaxy collection install community.general
+ansible-galaxy collection install amazon.aws
+
+# Use fully qualified collection name (FQCN)
+- name: Install package
+  ansible.builtin.apt:  # NOT just 'apt'
+    name: nginx
+    state: present"
+"Conda Init Required Error","CondaError: Run 'conda init' before 'conda activate'","Conda shell initialization is required before activate can be used","Initialize conda shell or use full path to conda environment.","# Source conda.sh before activate
+- name: Activate conda and run command
+  ansible.builtin.shell: |
+    source /opt/conda/etc/profile.d/conda.sh
+    conda activate myenv
+    python script.py
+  args:
+    executable: /bin/bash
+
+# Or use full path to Python in environment
+- name: Run with conda python
+  ansible.builtin.command: /opt/conda/envs/myenv/bin/python script.py"
+"YAML Syntax Error","mappint values are not allowed here","Incorrect YAML indentation or missing quotes around special characters.","Fix indentation and quote strings containing special characters.","# WRONG - colon in unquoted string
+- name: Set message
+  vars:
+    message: Hello: World  # Error!
+
+# CORRECT - quote strings with special chars
+- name: Set message
+  vars:
+    message: ""Hello: World"""
+"Host Not Found in Inventory","Could not match supplied host pattern, ignoring: all","The inventory file is empty or the host pattern does not match any hosts.","Check your inventory file path and ensure hosts are properly defined.","# Specify inventory file explicitly
+ansible-playbook -i inventory/hosts playbook.yml
+
+# Check if inventory is valid
+ansible-inventory -i inventory/hosts --list"
+"Inventory Parse Error","Unable to parse /etc/ansible/hosts as an inventory source","The inventory file has invalid syntax or uses an unrecognized format.","Validate your inventory file syntax. Use INI or YAML format correctly.","# INI format example
+[webservers]
+web1.example.com
+web2.example.com
+
+[dbservers]
+db1.example.com
+
+# YAML format example (hosts.yml)
+all:
+  children:
+    webservers:
+      hosts:
+        web1.example.com:
+        web2.example.com:"
+"Duplicate Host/Group Name","[WARNING]: round both group and host with same name","A host and a group share the same name in the inventory file.","Rename either the host or the group to avoid ambiguity.","# WRONG - same name for host and group
+[webserver]
+webserver ansible_host=192.168.1.10
+
+# CORRECT - use different names
+[webservers]
+web01 ansible_host=192.168.1.10"
+"No Inventory Parsed","No inventory was parsed, only implicit localhost is available","Ansible could not find or parse any inventory source. The default /etc/ansible/hosts may not exist.","Create an inventory file or specify one with -i flag.","# Create a simple inventory file
+echo ""[local]
+localhost ansible_connection=local"" > inventory.ini
+
+# Run with explicit inventory
+ansible-playbook -i inventory.ini playbook.yml"
+"Inventory Variable Precedence Issue","The variable was not set as expected","Variable precedence rules mean inventory variables may be overridden by playbook, role, or extra vars.","Use -e (extra vars) for highest precedence, or place variables in the correct scope.","# Variable precedence (lowest to highest):
+# 1. Role defaults
+# 2. Inventory vars
+# 3. Playbook vars
+# 4. Role vars
+# 5. Extra vars (-e)
+
+# Override with extra vars
+ansible-playbook playbook.yml -e ""my_var=override_value"""
+"Dynamic Inventory Script Error","Inventory script returned invalid JSON","The dynamic inventory script is not returning valid JSON or is not executable.","Ensure the script is executable and returns valid JSON with --list and --host flags.
+","# Make script executable
+chmod +x inventory.py
+
+# Test the script output
+./inventory.py --list | python -m json.tool
+
+# Verify it returns proper structure
+# {""group"": {""hosts"": [""host1""], ""vars"": {}}, ""_meta"": {""hostvars"": {}}}"
+"Host Unreachable","UNREACHABLE! => {""changed"": false, ""msg"": ""Failed to connect to the host via ssh""}","Ansible cannot reach the target host via SSH. The host may be down, DNS may not resolve, or the SSH port may be blocked.","Verify network connectivity, DNS resolution, and SSH service status on the target.","# Test connectivity
+ping target-host
+ssh user@target-host
+
+# Check with verbose output
+ansible target-host -m ping -vvvv
+
+# Specify connection details
+ansible target-host -m ping -u admin -k --ssh-extra-args=""-o ConnectTimeout=10"""
+"Python Interpreter Not Found on Target","MODULE FAILURE: No module named 'ansible'","Ansible cannot find a suitable Python interpreter on the remote host.","Set ansible_python_interpreter in inventory or install Python on the target.","# In inventory file
+[servers]
+myhost ansible_python_interpreter=/usr/bin/python3
+
+# Or globally in ansible.cfg
+[defaults]
+interpreter_python = auto_silent"
+"No Hosts Matched Pattern","Skipping: no hosts matched","The hosts pattern in the playbook does not match any group or host in the inventory.","Verify the hosts field in your playbook matches a group or host defined in your inventory.","# Playbook references 'webservers'
+- hosts: webservers  # Must match inventory group name
+
+# Check available groups
+ansible-inventory -i inventory --graph"
+"Children Group Not Defined","[WARNING]: Could not match supplied host pattern, ignoring: undefined_group","A parent group references a children group that does not exist in the inventory.","Define all referenced children groups in your inventory file.","# WRONG - missing 'staging' group definition
+[production:children]
+staging
+
+# CORRECT
+[staging]
+staging-host1
+
+[production:children]
+staging"
+"Vault Password Not Provided","Attempting to decrypt but no vault secrets found","The playbook uses encrypted vault variables but no vault password was provided.","Provide the vault password via --ask-vault-pass, --vault-password-file, or ANSIBLE_VAULT_PASSWORD_FILE.","# Interactive prompt
+ansible-playbook playbook.yml --ask-vault-pass
+
+# Password file
+ansible-playbook playbook.yml --vault-password-file ~/.vault_pass
+
+# Environment variable
+export ANSIBLE_VAULT_PASSWORD_FILE=~/.vault_pass"
+"Vault Decryption  Failed","Decryption failed (no vault secrets were found that could decrypt)","The vault password provided does not match the password used to encrypt the file.","Use the correct vault password. If lost, re-encrypt with a new password.","# Re-encrypt with new password (if you know the old one)
+ansible-vault rekey encrypted_file.yml
+
+# View encrypted content (to verify correct password)
+ansible-vault view encrypted_file.yml"
+"Not Vault Encrypted Data","input is not vault encrypted data","Ansible expected vault-encrypted content but found plain text or corrupted data.","Encrypt the file with ansible-vault encrypt, or remove vault references if not needed.","# Encrypt a file
+ansible-vault encrypt vars/secrets.yml
+
+# Encrypt a string for use in YAML
+ansible-vault encrypt_string 'my_secret' --name 'db_password'"
+"Multiple Vault Ids Required","ERROR! A]vault password must be specified to decrypt","Files are encrypted with different vault Ids and not all passwords were provided.","Provide all required vault passwords using --vault-id for each.","# Multiple vault Ids
+ansible-playbook playbook.yml \
+  --vault-id dev@~/.vault_pass_dev \
+  --vault-id prod@~/.vault_pass_prod
+
+# Encrypt with specific vault ID
+ansible-vault encrypt --vault-id prod@prompt secrets.yml"
+"Vault Editor Not Set","ERROR! The editor variable is not set","No $EDITOR environment variable is set, which ansible-vault edit requires.","Set the EDITOR environment variable to your preferred editor.","# Set editor temporarily
+EDITOR=vim ansible-vault edit secrets.yml
+
+# Set permanently in shell profile
+echo 'export EDITOR=vim' >> ~/.bashrc
+source ~/.bashrc"
+"Inline Vault Variable Error","AnsibleError: An unhandled exception occured while running the lookup plugin 'file'","An inline vault-encrypted variable is malformed or indentation is incorrect.","Ensure inline vault strings have correct YAML indentation and formatting.","# Generate inline encrypted variable
+ansible-vault encrypt_string 'supersecret' --name 'my_password'
+
+# Paste result into your vars file with correct indentation
+my_password: !vault |
+  $ANSIBLE_VAULT;1.1;AES256
+  ...encrypted data..."
+"Extra Newline in Vault Password File","Decryption failed","The vault password file contains a trailing newline that is included in the password.","Remove trailing newlines from the password file.","# Create password file without trailing newline
+echo -n 'my_vault_password' > ~/.vault_pass
+chmod 600 ~/.vault_pass
+
+# Verify no trailing newline
+xxd ~/.vault_pass | tail -1"
+"Vault Password File Permission Error","ERROR! The vault password file is not readable","The vault password file does not have proper read permissions.","Set appropriate file permissions on the vault password file.","# Fix permissions
+chmod 600 ~/.vault_pass
+chown $(whoami) ~/.vault_pass
+
+# Verify
+ls -la ~/.vault_pass"
+"Role Not Found","ERROR! The role 'my_role' was not found","Ansible cannot find the specified role in any of the configured roles paths.","Install the role with ansible-galaxy or add its path to roles_path in ansible.cfg.","# Install from Galaxy
+ansible-galaxy install geerlingguy.docker
+
+# Install from requirements file
+ansible-galaxy install -r requirements.yml
+
+# Check roles path
+ansible-config dump | grep ROLES_PATH"
+"Galaxy Install Failed","ERROR! - theass operation failed: Unable to find","The role or collection name is incorrect or Galaxy is unreachable.","Verify the role/collection name exists on Galaxy and check your internet connection.","# Search for roles
+ansible-galaxy search docker
+
+# Install with verbose output
+ansible-galaxy install -v geerlingguy.docker
+
+# Install specific version
+ansible-galaxy install geerlingguy.docker,6.1.0"
+"Role Dependency Conflict","ERROR! Unexpected Exception: Cannot satisfy the following requirements","Two or more roles require different versions of the same dependency.","Use --force to overwrite or resolve version conflicts in requirements.yml.","# Force reinstall
+ansible-galaxy install -r requirements.yml --force
+
+# Pin specific versions in requirements.yml
+roles:
+  - name: geerlingguy.docker
+    version: ""6.1.0""
+  - name: geerlingguy.pip
+    version: ""2.2.0"""
+"Collection Not Installed","ERROR! Couldn't resolve module/action 'community.general.ufw'","The required Ansible collection is not installed.","Install the collection using ansible-galaxy collection install.","# Install a collection
+ansible-galaxy collection install community.general
+
+# Install from requirements file
+ansible-galaxy collection install -r requirements.yml
+
+# requirements.yml
+collections:
+  - name: community.general
+    version: "">=7.0.0"""
+"Role tasks/main.yml Missing","ERROR! Could not find or access 'roles/my_role/tasks/main.yml'","The role directory structure is incomplete—tasks/main.yml does not exist.","Create the tasks/main.yml file or use ansible-galaxy init to scaffold the role.","# Scaffold a proper role structure
+ansible-galaxy init my_role
+
+# This creates:
+# my_role/
+#   tasks/main.yml
+#   handlers/main.yml
+#   defaults/main.yml
+#   vars/main.yml
+#   meta/main.yml"
+"Galaxy Requirements Format Error","ERROR! Invalied requirements file format","The requirements.yml file has invalid syntax or incorrect structure.","Use the correct YAML format for requirements files.","# Correct requirements.yml format
+---
+roles:
+  - name: geerlingguy.docker
+    version: ""6.1.0""
+
+collections:
+  - name: community.general
+    version: "">=7.0.0""
+  - name: ansible.posix"
+"Galaxy API Token Error","ERROR! Galaxy API rate limit or authentication error","Galaxy API rate limit exceeded or invalid authentication token.","Configure a Galaxy API token in ansible.cfg or use --token flag.","# Login to Galaxy
+ansible-galaxy login
+
+# Or set token in ansible.cfg
+[galaxy]
+server_list = release_galaxy
+
+[galaxy_server.release_galaxy]
+url=https://galaxy.ansible.com/
+token=my_token_here"
+"Handler Not Found","ERROR! The requested handler 'restart nginx' was not found","A task notifies a handler that does not exist or has a different name.","Ensure the handler name in 'notify' exactly matches the handler's 'name' field.","# Task with notify
+- name: Update nginx config
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+  notify: restart nginx  # Must match exactly
+
+# Handler definition
+handlers:
+  - name: restart nginx  # Exact match required
+    service:
+      name: nginx
+      state: restarted"
+"Dict Attribute Not Found","AnsibleError: 'dict object' has no attribute 'nonexistent_key'","Accessing a dictionary key that does not exist using dot notation.","Use the default filter or bracket notation with the 'in' test.","# WRONG
+{{ my_dict.nonexistent_key }}
+
+# CORRECT - use default filter
+{{ my_dict.nonexistent_key | default('fallback') }}
+
+# CORRECT - use bracket notation
+{{ my_dict['nonexistent_key'] | default('fallback') }}
+
+# CORRECT - check first
+{% if 'nonexistent_key' in my_dict %}
+  {{ my_dict.nonexistent_key }}
+{% endif %}"
+"Variable Type Mismatch","Unexpected templating type error occurred: can only concatenate str to str","Trying to concatenate a string with an integer or other non-string type in Jinja2.","Use the string filter or explicit type conversion.","# WRONG
+{{ ""Port: "" + port_number }}
+
+# CORRECT - use string filter
+{{ ""Port: "" + port_number | string }}
+
+# CORRECT - use format
+{{ ""Port: %d"" | format(port_number) }}"
+"Recursive Variable Loop","AnsibleError: recursive loop detected in template string","A variable references itself, creating an infinite recursion.","Remove the circular reference by using different variable names.","# WRONG - circular reference
+my_var: ""{{ my_var }}_suffix""
+
+# CORRECT - use different name
+my_var_base: ""value""
+my_var: ""{{ my_var_base }}_suffix"""
+"Fact Gathering Timeout","FAILED! => {""msg"": ""Timeout (12s) waiting for privilege escalation prompt""}","Ansible setup module timed out, often due to privilege escalation issues.","Disable fact gathering or fix the become configuration.","# Disable fact gathering
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: Gather facts manually
+      setup:
+      become: true
+
+# Or increase timeout
+- hosts: all
+  gather_facts: true
+  gather_timeout: 30"
+"Fact Not Available (gather_facts: false)","AnsibleUndefinedVariable: 'ansible_facts' has no attribute 'distribution'","Facts are not collected because gather_facts is set to false.","Enable gather_facts or run the setup module manually before accessing facts.","# Option 1: Enable fact gathering
+- hosts: all
+  gather_facts: true
+
+# Option 2: Gather facts in a task
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: Gather facts
+      setup:
+
+    - name: Use facts
+      debug:
+        msg: ""{{ ansible_distribution }}"""
+"Registered Variable Undefined (Skipped Task)","AnsibleUndefinedVariable: 'result' is undefined","A task was skipped due to a 'when' condition, so the registered variable was never set.","Use the default filter or check if the variable is defined.","- name: Check service
+  command: systemctl status nginx
+  register: result
+  when: check_nginx | default(false)
+
+# Safe access - check if defined
+- name: Show result
+  debug:
+    msg: ""{{ result.stdout | default('not checked') }}""
+  when: result is defined and result is not skipped"
+"Vars File Not Found","ERROR! Vars file not found",,"Check the file path or use include_vars with ignore_errors.","# Check file exists
+- hosts: all
+  vars_files:
+    - vars/main.yml  # Must exist!
+
+# Optional vars file
+- hosts: all
+  tasks:
+    - name: Load vars if file exists
+      include_vars: ""vars/{{ env }}.yml""
+      ignore_errors: true"
+"Boolean Variable Depreciation Warning","[DEPRECIATION WARNING]: evaluating as a bare variable","Using a bare variable name in a 'when' clause without Jinja2 syntax.","Use proper boolean comparisons in 'when' clauses.","# DEPRECATED
+- name: Task
+  command: echo hello
+  when: my_flag
+
+# CORRECT - explicit boolean
+- name: Task
+  command: echo hello
+  when: my_flag | bool
+
+# CORRECT - comparison
+- name: Task
+  command: echo hello
+  when: my_flag == true"
+"Extra Vars JSON Parse Error","ERROR: We were unable to read either as JSON nor YAML","The -e/--extra-vars argument contains invalid JSON or YAML syntax.","Use proper JSON quoting or @file syntax for complex variables.","# Simple key=value
+ansible-playbook playbook.yml -e ""key=value""
+
+# JSON format (quote properly for shell)
+ansible-playbook playbook.yml -e '{""key"": ""value"", ""list"": [1,2,3]}'
+
+# From file
+ansible-playbook playbook.yml -e @vars.json"
+"Hostvars Undefined for Host","AnsibleUndefinedVariable: 'dict_object' has no attribute 'other_host'","Trying to access hostvars for a host that is not in the current play or has not been contacted.","Ensure the target host is in the play or use delegate_facts.","# Access hostvars from another host
+{{ hostvars['other_host']['ansible_default_ipv4']['address'] }}
+
+# Ensure facts are gathered on the other host first
+- hosts: other_host
+  gather_facts: true
+
+- hosts: my_host
+  tasks:
+    - debug:
+        msg: ""{{ hostvars['other_host']['ansible_default_ipv4']['address'] }}"""
+"Jinja2 Filter Not Found","TemplateAssertionError: No filter named 'to_json'","Using a filter that does not exist or is from a collection that is not installed.","Check the filter name spelling or install the required collection.","# Common Ansible filters
+{{ my_list | to_json }}
+{{ my_string | regex_replace('old', 'new') }}
+{{ my_dict | combine(other_dict) }}
+
+# If using collection filters, install first
+ansible-galaxy collection install community.general"
+"Jinja2 For Loop - Not Iterable","AnsibleError: 'NoneType' object is not iterable","The variable used in a for loop is None (undefined or empty).","Use the default filter to provide an empty list as fallback.","# WRONG - fails if my_list is undefined
+{% for item in my_list %}
+  {{ item }}
+{% endfor %}
+
+# CORRECT - default to empty list
+{% for item in my_list | default([]) %}
+  {{ item }}
+{% endfor %}"
+"Template Destination Directory Missing","Destination directory does not exist","The destination directory for the template file does not exist on the target.","Create the directory first using the file module.","# Create directory first
+- name: Ensure config directory exists
+  file:
+    path: /etc/myapp
+    state: directory
+    mode: '0755'
+
+- name: Deploy config
+  template:
+    src: myapp.conf.j2
+    dest: /etc/myapp/myapp.conf"
+"Template Unicode/Encoding Error","UnicodeDecodeError: 'utf-8' codec can't decode byte","The template file contains non-UTF-8 characters or binary content.","Convert the template to UTF-8 encoding or use the copy module for binary files.","# Convert file to UTF-8
+iconv -f ISO-8859-1 -t UTF-8 template.j2 > template_utf8.j2
+
+# For binary files, use copy instead of template
+- name: Copy binary file
+  copy:
+    src: myfile.bin
+    dest: /opt/myfile.bin"
+"Template Unwanted Whitespace","Template produces unwanted blank lines","Jinja2 control structures (if/for) produce blank lines in output.","Use whitespace control markers (-) in Jinja2 tags.","# Without whitespace control (extra blank lines)
+{% for item in list %}
+{{ item }}
+{% endfor %}
+
+# With whitespace control (clean output)
+{%- for item in list %}
+{{ item }}
+{%- endfor %}
+
+# Or set trim_blocks in ansible.cfg
+# [defaults]
+# jinja2_extensions = jinja2.ext.loopcontrols"
+"Jinja2 Regex Error in When Clause","error while evaluating conditional: unexpected char","Special regex characters in a 'when' condition are not properly escaped.","Use the regex_search or regex_replace filters with proper escaping.","# WRONG - unescaped regex in when
+- debug: msg=""matched""
+  when: my_var | regex_search('[')
+
+# CORRECT - escape special chars
+- debug: msg=""matched""
+  when: my_var | regex_search('\\[')
+
+# Or use 'in' for simple matching
+- debug: msg=""matched""
+  when: ""'[' in my_var"""
+"Variable Out of Scope in Template","AnsibleUndefinedVariable: 'item' is undefined","Referencing a loop variable (item) inside a template that is not inside a loop.","Pass the variable explicitly to the template or restructure the task.","# WRONG - 'item' not available inside template by default
+- name: Deploy configs
+  template:
+    src: app.conf.j2
+    dest: ""/etc/{{ item }}.conf""
+  loop: ""{{ apps }}""
+
+# In template, use the variable directly
+# {{ item }}  <-- works because template inherits task scope
+
+# For custom variable names
+- name: Deploy configs
+  template:
+    src: app.conf.j2
+    dest: ""/etc/{{ app_name }}.conf""
+  loop: ""{{ apps }}""
+  loop_control:
+    loop_var: app_name"
+"Jinja2 Syntax - elif vs elif","TemplateSyntaxError: Encountered unknown tag 'elif'","Using Python syntax (elif) instead of Jinja2 syntax (elif) in templates.","Use Jinja2 control structures: {% elif %} not elif alone.","# WRONG - Python syntax
+{% if x == 1 %}
+  one
+elif x == 2:
+  two
+{% endif %}
+
+# CORRECT - Jinja2 syntax
+{% if x == 1 %}
+  one
+{% elif x == 2 %}
+  two
+{% else %}
+  other
+{% endif %}"
+"boto3/botocore Not Installed (AWS)","Failed to import the required Python library (botocore or boto3)","AWS modules require boto3 and botocore Python libraries.","Install boto3 on the Ansible controller (or target if using local connection).","# Install boto3
+pip install boto3 botocore
+
+# Or install amazon.aws collection with dependencies
+ansible-galaxy collection install amazon.aws
+pip install -r ~/.ansible/collections/ansible_collections/amazon/aws/requirements.txt"
+"Docker SDK for Python Missing","Failed to import docker or docker-py","Docker modules require the Docker SDK for Python.","Install the docker Python package (not docker-py).","# Install Docker SDK
+pip install docker
+
+# NOT docker-py (deprecated)
+# pip install docker-py  # WRONG
+
+# Verify
+python -c ""import docker; print(docker.__version__)"""
+"Kubernetes Python Client Missing","This module requires the OpenShift Python client","Kubernetes modules require the openshift and kubernetes Python libraries.","Install the required Python packages for Kubernetes.","# Install K8s dependencies
+pip install openshift kubernetes
+
+# Or install collection with dependencies
+ansible-galaxy collection install kubernetes.core
+pip install -r ~/.ansible/collections/ansible_collections/kubernetes/core/requirements.txt"
+"APT Lock Error","Could not get lock /var/lib/dpkg/lock-frontend","Another process is holding the dpkg/apt lock, preventing package installation.","Wait for the other process to finish or handle the lock in your playbook.","# Wait for apt lock to be released
+- name: Wait for apt lock
+  shell: while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done
+  changed_when: false
+
+- name: Install package
+  apt:
+    name: nginx
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10"
+"YUM GPG Key Error","Public key for package is not installed","The RPM GPG key for the repository is not imported.","Import the GPG key or disable GPG check (not recommended for production).","# Import GPG key
+- name: Import GPG key
+  rpm_key:
+    state: present
+    key: https://example.com/RPM-GPG-KEY
+
+- name: Install package
+  yum:
+    name: my-package
+    state: present
+
+# Or disable GPG check (not recommended)
+- name: Install without GPG check
+  yum:
+    name: my-package
+    state: present
+    disable_gpg_check: true"
+"Service Not Found","Could not find the requested service","The service name does not exist on the target system.","Verify the service name and ensure the software is installed.","# List available services
+- name: List services
+  command: systemctl list-unit-files --type=service
+  register: services
+
+# Use correct service name
+- name: Start nginx
+  service:
+    name: nginx  # not 'Nginx' or 'nginx.service'
+    state: started
+    enabled: true"
+"File Module Permission Denied","Permission denied","The remote user does not have permission to create or modify the file.","Use become: true for privilege escalation or adjust file ownership.","- name: Create file with elevated privileges
+  file:
+    path: /etc/myapp/config.yml
+    state: touch
+    owner: root
+    group: root
+    mode: '0644'
+  become: true"
+"Copy Module Checksum Mismatch","checksum mismatch for transferred file","The file was corrupted during transfer or filesystem issues on the target.","Check disk space and filesystem health on the target. Retry the transfer.","# Check disk space on target
+- name: Check disk space
+  command: df -h /tmp
+  register: disk_space
+  changed_when: false
+
+# Copy with validation
+- name: Copy file
+  copy:
+    src: myfile.tar.gz
+    dest: /opt/myfile.tar.gz
+    validate: ""md5sum %s"""
+"Command Module Always Reports Changed","Task always reports 'changed'","The command/shell module always reports changed unless told otherwise.","Use changed_when or creates/removes parameters for idempotency.","# WRONG - always reports changed
+- name: Check something
+  command: cat /etc/hostname
+
+# CORRECT - never changes
+- name: Check something
+  command: cat /etc/hostname
+  changed_when: false
+
+# CORRECT - only runs if file doesn't exist
+- name: Initialize database
+  command: /opt/app/init-db.sh
+  args:
+    creates: /opt/app/data/initialized"
+"Lineinfile Regex Multiple Matches","line added but multiple lines match regex","The regex in lineinfile matches multiple lines, leading to unexpected results.","Make the regex more specific or use blockinfile for multi-line content.","# More specific regex
+- name: Update config value
+  lineinfile:
+    path: /etc/sysctl.conf
+    regexp: '^net\.ipv4\.ip_forward\s*='
+    line: 'net.ipv4.ip_forward = 1'
+
+# For multi-line blocks, use blockinfile
+- name: Add config block
+  blockinfile:
+    path: /etc/ssh/sshd_config
+    marker: ""# {mark} ANSIBLE MANAGED BLOCK""
+    block: |
+      PermitRootLogin no
+      PasswordAuthentication no"
+"Ansible Command Not Found","ansible-playbook: command not found","Ansible is not installed or not in the system PATH.","Install Ansible via pip or your package manager.","# Install via pip
+pip install ansible
+
+# Or via package manager
+# Ubuntu/Debian
+sudo apt install ansible
+
+# RHEL/CentOS
+sudo yum install ansible
+
+# Verify installation
+ansible --version"
+"SSH Invalid Key Format","load key: invalid format","The SSH private key file has an invalid format or was generated with an unsupported algorithm.","Regenerate the key or convert it to the correct format.","# Convert OpenSSH key to PEM format
+ssh-keygen -p -m PEM -f ~/.ssh/id_rsa
+
+# Generate new key in compatible format
+ssh-keygen -t rsa -b 4096 -m PEM -f ~/.ssh/ansible_key
+
+# Check key format
+file ~/.ssh/id_rsa"
+"Paramiko SSH Library Not Installed","paramiko is not available","The paramiko Python library is required for certain connection types but is not installed.","Install paramiko via pip.","pip install paramiko
+
+# Or use OpenSSH instead (default)
+# In ansible.cfg
+[defaults]
+transport = ssh"
+"SSH ControlPersist Not Supported","Bad configuration option: ControlPersist","The SSH version is too old to support ControlPersist (requires OpenSSH 5.6+).","Upgrade OpenSSH or disable ControlPersist in ansible.cfg.","# Check SSH version
+ssh -V
+
+# Disable ControlPersist in ansible.cfg
+[ssh_connection]
+ssh_args = -o ControlMaster=no
+
+# Or upgrade OpenSSH
+sudo apt install openssh-client"
+"sudo Requires TTY","sudo: sorry, you must have tty to run sudo","The sudoers configuration requires a TTY for sudo, but Ansible runs without one.","Disable requiretty in sudoers or use pipelining.","# Fix in sudoers (on target)
+# visudo
+Defaults:ansible_user !requiretty
+
+# Or in ansible.cfg
+[defaults]
+pipelining = True
+
+[ssh_connection]
+ssh_args = -o ControlMaster=auto -o ControlPersist=60s -tt"
+"Become Method Not Available","The become method 'doas' is not available","The specified become method is not installed on the target system.","Use a different become method (sudo, su) or install the required one.","# Common become methods
+- hosts: all
+  become: true
+  become_method: sudo  # default
+
+# Alternative methods
+  become_method: su
+  become_method: pbrun
+  become_method: pfexec
+  become_method: runas  # Windows"
+"Connection Timeout Too Short","Timeout (10s) waiting for connection","The default connection timeout is too short for slow networks or cloud instances.","Increase the timeout in ansible.cfg or per-host.","# In ansible.cfg
+[defaults]
+timeout = 30
+
+# Per-host in inventory
+slow_host ansible_host=10.0.0.1 ansible_timeout=60
+
+# Or via environment variable
+export ANSIBLE_TIMEOUT=30"
+"SSH Agent Not Running","Could not open a connection to your authentication agent","The SSH agent is not running, so SSH keys cannot be forwarded.","Start the SSH agent and add your key.","# Start SSH agent
+eval $(ssh-agent -s)
+
+# Add key
+ssh-add ~/.ssh/id_rsa
+
+# Verify
+ssh-add -l
+
+# For persistent agent, add to shell profile
+echo 'eval $(ssh-agent -s)' >> ~/.bashrc"
+"Python Version Not Supported","ansbile-core requires Python >=3.9","The installed Python version is too old for the current ansible-core version.","Upgrade Python or install an older compatible ansible-core version.","# Check Python version
+python3 --version
+
+# Install Python 3.9+ (Ubuntu)
+sudo apt install python3.11
+
+# Or use a virtualenv
+python3.11 -m venv ansible-env
+source ansible-env/bin/activate
+pip install ansible"
+"Cryptography Module Import Error","Cannot import name 'default_backend' from 'cryptography.hazmat.backends'","Incompatible version of the cryptography Python package.","Upgrade the cryptography package.","# Upgrade cryptography
+pip install --upgrade cryptography
+
+# If conflicts exist
+pip install 'cryptography>=41.0'
+
+# Or reinstall ansible with fresh dependencies
+pip install --force-reinstall ansible"
+"Jinja2 Version Incompatible","Jinja2 >= 3.0 is required","The installed Jinja2 version is too old for the current Ansible version.","Upgrade Jinja2.","pip install --upgrade Jinja2
+
+# Check version
+python -c ""import jinja2; print(jinja2.__version__)"""
+"PyYAML Not Installed","No module named 'yaml'","The PyYAML package is not installed in the Python environment.","Install PyYAML via pip.","pip install PyYAML
+
+# Verify
+python -c ""import yaml; print(yaml.__version__)"""
+"pkg_resources / setuptools Missing","ModuleNotFoundError: No module named 'pkg_resources'","The setuptools package is missing from the Python environment.","Install setuptools.","pip install setuptools
+
+# On Ubuntu/Debian if pip fails
+sudo apt install python3-setuptools"
+"Ansible Not Found in Virtualenv","No module named 'ansible'","Running ansible from a virtualenv that does not have it installed, or the venv is not activated.","Activate the virtualenv or install ansible inside it.","# Activate virtualenv
+source /path/to/venv/bin/activate
+
+# Install ansible in venv
+pip install ansible
+
+# Verify
+which ansible
+ansible --version"
+"Playbook Missing 'hosts' Field","ERROR! 'hosts' is required but was not set","The playbook play is missing the required 'hosts' field.","Add a 'hosts' field to each play in the playbook.","# WRONG
+- name: My playbook
+  tasks:
+    - debug: msg=""hello""
+
+# CORRECT
+- name: My playbook
+  hosts: all
+  tasks:
+    - debug: msg=""hello"""
+"Playbook YAML Syntax Error","ERROR! Syntax Error while loading YAML","The playbook YAML file has invalid syntax (wrong indentation, missing colons, etc.).","Run ansible-playbook --syntax-check and use a YAML linter.","# Check syntax
+ansible-playbook playbook.yml --syntax-check
+
+# Use yamllint
+pip install yamllint
+yamllint playbook.yml
+
+# Common issues: tabs (use spaces!), missing colons, bad indentation"
+"Duplicate Key in YAML Mapping","Duplicate key found in mapping","The YAML file has duplicate keys at the same level, which is invalid.","Remove or rename duplicate keys.","# WRONG - duplicate 'name' key
+- name: Install nginx
+  apt:
+    name: nginx
+  name: Start nginx  # Duplicate!
+
+# CORRECT - separate tasks
+- name: Install nginx
+  apt:
+    name: nginx
+
+- name: Start nginx
+  service:
+    name: nginx
+    state: started"
+"No Action Detected in Task","ERROR! No action detected in task","A task is missing a module/action. It may have a name but no module.","Add a module (command, copy, template, etc.) to the task.","# WRONG - no action
+- name: Do something
+
+# CORRECT
+- name: Do something
+  debug:
+    msg: ""Doing something"""
+"Include Tasks File Not Found","ERROR! Included task file not found","The file referenced in include_tasks or import_tasks does not exist.","Check the file path. Paths are relative to the playbook or role directory.","# Relative to playbook directory
+- include_tasks: tasks/setup.yml
+
+# Relative to role
+# roles/myrole/tasks/main.yml
+- include_tasks: install.yml  # looks in roles/myrole/tasks/
+
+# Absolute path
+- include_tasks: /opt/ansible/tasks/common.yml"
+"When Conditional Syntax Error","The conditional check failed. The error was: template error","The 'when' condition has a Jinja2 syntax error or invalid comparison.","Don't use {{ }} in 'when' clauses—they are already Jinja2 expressions.","# WRONG - don't use {{ }} in when
+- debug: msg=""hello""
+  when: ""{{ my_var }} == 'value'""
+
+# CORRECT
+- debug: msg=""hello""
+  when: my_var == 'value'
+
+# CORRECT - multiple conditions
+- debug: msg=""hello""
+  when:
+    - my_var == 'value'
+    - other_var is defined"
+"Nested Loop Variable Conflict","The loop variable 'item' is already in use","Nested loops both use 'item' as the loop variable, causing a conflict.","Use loop_control with loop_var to rename the inner loop variable.","# WRONG - both loops use 'item'
+- include_tasks: inner.yml
+  loop: ""{{ outer_list }}""
+
+# CORRECT - rename loop variable
+- include_tasks: inner.yml
+  loop: ""{{ outer_list }}""
+  loop_control:
+    loop_var: outer_item"
+"All Tasks Skipped by Tags","No tasks executed (all tasks skipped by tags)","The specified --tags do not match any tasks in the playbook.","List available tags and use the correct tag name.","# List all tags in a playbook
+ansible-playbook playbook.yml --list-tags
+
+# Run specific tag
+ansible-playbook playbook.yml --tags ""install""
+
+# Skip specific tag
+ansible-playbook playbook.yml --skip-tags ""test"""
+"Async Task Timed Out","async task did not complete within the requested time","An async task did not complete within the specified timeout.","Increase the async timeout value or check if the task is stuck.","# Increase async timeout (seconds)
+- name: Long running task
+  command: /opt/heavy-script.sh
+  async: 3600  # 1 hour
+  poll: 30     # check every 30 seconds
+
+# Fire and forget
+- name: Start background job
+  command: /opt/heavy-script.sh
+  async: 3600
+  poll: 0
+  register: job
+
+# Check later
+- name: Wait for job
+  async_status:
+    jid: ""{{ job.ansible_job_id }}""
+  register: result
+  until: result.finished
+  retries: 60
+  delay: 30"
+"Delegate_to Host Unreachable","UNREACHABLE on delegated host","The host specified in delegate_to is not reachable or not in the inventory.","Ensure the delegate host is reachable and properly configured.","# Delegate to localhost
+- name: Run locally
+  command: echo ""hello""
+  delegate_to: localhost
+
+# Delegate to specific host
+- name: Run on db server
+  command: pg_dump mydb
+  delegate_to: db-server  # Must be in inventory
+
+# With connection local
+- name: Local API call
+  uri:
+    url: http://api.example.com
+  delegate_to: localhost
+  connection: local"
+"Block/Rescue Syntax Error","ERROR! 'rescue' is not a valid attribure for a Task","The rescue clause is not inside a block structure.","Wrap tasks in a block before using rescue/always.","# CORRECT - block/rescue/always structure
+- name: Handle errors gracefully
+  block:
+    - name: Try something
+      command: /opt/risky-script.sh
+
+    - name: Another risky task
+      service:
+        name: myapp
+        state: started
+  rescue:
+    - name: Handle failure
+      debug:
+        msg: ""Something failed, cleaning up""
+  always:
+    - name: Always run this
+      debug:
+        msg: ""Cleanup complete"""
+"Retries Exceeded for Until Condition","FAILED - RETRYING: task_name (1 retries left)","The task's until condition was never met within the specified number of retries.","Increase retries/delay or fix the underlying condition.","- name: Wait for service to be ready
+  uri:
+    url: http://localhost:8080/health
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 30    # number of retries
+  delay: 10      # seconds between retries"
+"Task Does Not Support Check Mode","task does not support check mode","The command/shell module does not support --check (dry-run) mode.","Use check_mode: false to force execution or add changed_when.","# Force run even in check mode
+- name: Gather info (always run)
+  command: cat /etc/hostname
+  register: hostname
+  check_mode: false
+  changed_when: false
+
+# Or skip in check mode
+- name: Dangerous operation
+  command: /opt/deploy.sh
+  when: not ansible_check_mode"
+"Invalid Serial Directive","ERROR! 'serial' directive must be an integer or percentage","The serial value in the play is not a valid integer or percentage string.","Use an integer, percentage string, or list for rolling updates.","# Rolling update - 2 hosts at a time
+- hosts: webservers
+  serial: 2
+
+# Percentage
+- hosts: webservers
+  serial: ""25%""
+
+# Gradual rollout
+- hosts: webservers
+  serial:
+    - 1
+    - 5
+    - ""25%"""
+"Become User Not Allowed","User is not allowed to execute command as another user","The sudoers configuration does not allow the user to switch to the requested become_user.","Update sudoers to allow the user to become the target user.","# In /etc/sudoers (on target)
+ansible_user ALL=(ALL) NOPASSWD: ALL
+
+# Or more restrictive
+ansible_user ALL=(app_user) NOPASSWD: /usr/bin/systemctl restart myapp
+
+# In playbook
+- name: Restart as app user
+  command: systemctl restart myapp
+  become: true
+  become_user: app_user"
+"Output Hidden by no_log","output has been hidden due to the fact that 'no_log: true' was specified","The task has no_log: true set, hiding all output including errors.","Temporarily remove no_log for debugging, then re-enable it.","# For debugging, temporarily disable no_log
+- name: Create user
+  user:
+    name: myuser
+    password: ""{{ vault_password | password_hash('sha512') }}""
+  # no_log: true  # Comment out for debugging
+
+# Better: use no_log with a variable
+- name: Create user
+  user:
+    name: myuser
+    password: ""{{ vault_password | password_hash('sha512') }}""
+  no_log: ""{{ not debug_mode | default(true) }}"""
+"Free Strategy Execution Order","Tasks execute in unexpected order with strategy: free","With strategy: free, tasks run as fast as possible without waiting for other hosts.","Use strategy: linear (default) for ordered execution, or accept non-deterministic order.","# Default ordered execution
+- hosts: all
+  strategy: linear
+  tasks: [...]
+
+# Parallel (faster but unordered)
+- hosts: all
+  strategy: free
+  tasks: [...]
+
+# Set default in ansible.cfg
+[defaults]
+strategy = linear"
+"Too Many Open Files (Forks)","Too many open files","The number of forks is too high for the system's ulimit settings.","Reduce forks in ansible.cfg or increase the system's file descriptor limit.","# Reduce forks in ansible.cfg
+[defaults]
+forks = 10  # Default is 5
+
+# Or increase system limits
+ulimit -n 65535
+
+# Permanently in /etc/security/limits.conf
+* soft nofile 65535
+* hard nofile 65535"
+"Callback Plugin Error","ERROR! Callback plugin does not support the v2_runner_on_ok method","A callback plugin is incompatible with the current Ansible version.","Update the callback plugin or disable it in ansible.cfg.","# Disable problematic callback
+[defaults]
+callback_whitelist =
+
+# Or use built-in callbacks
+[defaults]
+stdout_callback = yaml
+callback_whitelist = timer, profile_tasks
+
+# List available callbacks
+ansible-doc -t callback -l"
