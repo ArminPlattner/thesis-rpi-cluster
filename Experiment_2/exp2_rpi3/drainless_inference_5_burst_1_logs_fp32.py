@@ -8,7 +8,7 @@ from transformers import BertConfig, AutoTokenizer, BertModel
 from confluent_kafka import Consumer, Producer
 
 # CONFIG
-MODEL_PATH = "/home/ubuntu/ansible-intelligence/RPI_Cluster_Models/BSc_Thesis_Model_v6_stratified_new"
+MODEL_PATH = "/home/ubuntu/ansible-intelligence/RPI_Cluster_Models/BSc_Thesis_V6_Full_Drainless"
 KAFKA_BOOTSTRAP = "10.42.0.184:32709"
 
 IN_TOPIC = "ansible-anomalous"

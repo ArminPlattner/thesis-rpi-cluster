@@ -12,7 +12,7 @@ from drain3.template_miner_config import TemplateMinerConfig
 from drain3.masking import MaskingInstruction
 
 # CONFIG 
-MODEL_PATH = "/home/ubuntu/ansible-intelligence/RPI_Cluster_Models/BSc_Thesis_Model_v6_WITH_DRAIN_NEW"
+MODEL_PATH = "/home/ubuntu/ansible-intelligence/RPI_Cluster_Models/BSc_Thesis_V6_Full_DRAIN"
 DRAIN_STATE_PATH = os.path.join(MODEL_PATH, "drain_state.bin")
 KAFKA_BOOTSTRAP = "10.42.0.184:32709"
 
@@ -184,7 +184,7 @@ consumer = Consumer({
 producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
 consumer.subscribe([IN_TOPIC])
 
-print(f"📡 DRAIN PyTorch FP32 Baseline listening active on {IN_TOPIC}...")
+print(f"DRAIN PyTorch FP32 Baseline listening active on {IN_TOPIC}...")
 
 try:
     while True:
@@ -240,6 +240,6 @@ try:
         print("-" * 55)
 
 except KeyboardInterrupt:
-    print("\n🛑 Shutting down PyTorch baseline consumer...")
+    print("\nShutting down PyTorch baseline consumer...")
 finally:
     consumer.close()

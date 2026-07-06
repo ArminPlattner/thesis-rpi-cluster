@@ -7,7 +7,7 @@ KAFKA_BOOTSTRAP = "10.42.0.184:32709"
 TOPIC = "ansible-raw-logs"
 CSV_FILE = "/home/ubuntu/ansible_anomaly_pool_new_test.csv"
 
-print(f"Loading stratified Phase 6 test dataset from {CSV_FILE}...")
+print(f"Loading stratified test dataset from {CSV_FILE}...")
 df = pd.read_csv(CSV_FILE)
 
 p = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
