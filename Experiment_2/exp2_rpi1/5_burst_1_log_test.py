@@ -7,13 +7,13 @@ KAFKA_BOOTSTRAP = "10.42.0.184:32709"
 TOPIC = "ansible-raw-logs"
 CSV_FILE = "/home/ubuntu/ansible_anomaly_pool_new_test.csv"
 
-print(f"📥 Loading stratified Phase 6 test dataset from {CSV_FILE}...")
+print(f"Loading stratified Phase 6 test dataset from {CSV_FILE}...")
 df = pd.read_csv(CSV_FILE)
 
 p = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
 
 def run_intermittent_test(cycles=5, interval_seconds=12):
-    print(f"🚀 Starting intermittent evaluation loop: {cycles} logs, {interval_seconds}s intervals.")
+    print(f"Starting intermittent evaluation loop: {cycles} logs, {interval_seconds}s intervals.")
 
     for cycle in range(1, cycles + 1):
         # Sample directly from the stratified test dataset
@@ -32,7 +32,7 @@ def run_intermittent_test(cycles=5, interval_seconds=12):
             "t_send_ns": time.time_ns()
         }
 
-        print(f"📡 [{cycle}/{cycles}] Dispatching {msg_id}")
+        print(f"[{cycle}/{cycles}] Dispatching {msg_id}")
         print(f"   ↳ GT IaC: {true_iac} | GT Fault: {true_fault}")
         
         p.produce(TOPIC, json.dumps(payload).encode("utf-8"))
@@ -42,7 +42,7 @@ def run_intermittent_test(cycles=5, interval_seconds=12):
             print(f"💤 Sleeping for {interval_seconds} seconds...")
             time.sleep(interval_seconds)
 
-    print("🏁 Intermittent evaluation sequence completed successfully.")
+    print("Intermittent evaluation sequence completed successfully.")
 
 if __name__ == "__main__":
     run_intermittent_test(cycles=5, interval_seconds=12)

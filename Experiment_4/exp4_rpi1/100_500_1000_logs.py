@@ -28,7 +28,7 @@ def run_stress_test(target_volume, intra_log_delay_ms):
         if os.path.exists(fallback):
             target_csv = fallback
         else:
-            print(f"❌ Error: Cannot find dataset '{CSV_FILE}'")
+            print(f"Error: Cannot find dataset '{CSV_FILE}'")
             return
 
     print(f"Loading dataset from {target_csv}...")

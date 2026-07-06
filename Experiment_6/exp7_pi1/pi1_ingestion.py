@@ -19,7 +19,6 @@ INJECT_PLAYBOOK = "./fault_inject.yml"
 INVENTORY = "./hosts.ini"
 TEST_POOL_CSV = "../ansible_anomaly_pool_new_test.csv"
 
-# Added 'fault' to profiles to ensure deterministic filtering
 RULE_PROFILE = {
     "R1": {"desc": "SSH brute-force mitigation", "iac": "Security", "fault": "State Mismanagement", "inject_tag": "R1"},
     "R2": {"desc": "Config drift rollback", "iac": "Configuration Data", "fault": "Variable Misreference", "inject_tag": "R2"},
