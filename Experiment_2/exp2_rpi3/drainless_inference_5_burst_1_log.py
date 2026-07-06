@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 from confluent_kafka import Consumer, Producer
 import onnxruntime as ort
 
-# ---------------- CONFIG ----------------
+# CONFIG
 MODEL_PATH = "/home/ubuntu/ansible-intelligence/RPI_Cluster_Models/BSc_Thesis_V6_Quantized_Drainless"
 KAFKA_BOOTSTRAP = "10.42.0.184:32709"
 
@@ -18,20 +18,20 @@ CONFIDENCE_THRESHOLD = 0.90
 MAX_LEN = 256
 CPU_THREADS = 2
 
-# ---------------- LABELS ----------------
-print(f"📥 Loading labels from {MODEL_PATH}...")
+# LABELS
+print(f"Loading labels from {MODEL_PATH}...")
 with open(os.path.join(MODEL_PATH, "labels.json"), "r") as f:
     labels_data = json.load(f)
     iac_labels = labels_data["iac_labels"]
     fault_labels = labels_data["fault_labels"]
 
-# ---------------- TOKENIZER + ONNX ----------------
-print(f"🔄 Initializing Tokenizer from {MODEL_PATH}...")
+# TOKENIZER + ONNX
+print(f"Initializing Tokenizer from {MODEL_PATH}...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 
 onnx_files = [f for f in os.listdir(MODEL_PATH) if f.endswith(".onnx")]
 if not onnx_files:
-    raise FileNotFoundError(f"❌ Critical Error: No ONNX runtime model found in {MODEL_PATH}")
+    raise FileNotFoundError(f"Critical Error: No ONNX runtime model found in {MODEL_PATH}")
 ONNX_PATH = os.path.join(MODEL_PATH, onnx_files[0])
 
 sess_options = ort.SessionOptions()
@@ -40,7 +40,7 @@ sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
 session = ort.InferenceSession(ONNX_PATH, sess_options, providers=["CPUExecutionProvider"])
-print(f"✅ Quantized INT8 DRAINless Engine loaded: {ONNX_PATH}")
+print(f"Quantized INT8 DRAINless Engine loaded: {ONNX_PATH}")
 
 def softmax(x):
     x = x - np.max(x, axis=-1, keepdims=True)
@@ -99,13 +99,13 @@ def predict_with_safety_gate(raw_log):
         "iac_confidence": iac_conf,
         "fault_category": fault_cat,
         "fault_confidence": fault_conf,
-        "sub_system": "General Infrastructure", # Fallback baseline
+        "sub_system": "General Infrastructure",
         "is_healable": is_healable,
         "escalation_reason": reason,
         "inference_ms": inference_ms
     }
 
-# ---------------- KAFKA DATA PIPELINE LOOP ----------------
+# KAFKA DATA PIPELINE LOOP
 consumer = Consumer({
     "bootstrap.servers": KAFKA_BOOTSTRAP,
     "group.id": "brain-drainless-int8-v6",
@@ -114,7 +114,7 @@ consumer = Consumer({
 producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
 consumer.subscribe([IN_TOPIC])
 
-print(f"🧠 DRAINless ONNX engine streaming from {IN_TOPIC}...")
+print(f"DRAINless ONNX engine streaming from {IN_TOPIC}...")
 
 try:
     while True:
@@ -169,6 +169,6 @@ try:
         print("-" * 55)
 
 except KeyboardInterrupt:
-    print("\n🛑 Shutting down drainless consumer...")
+    print("\nShutting down drainless consumer...")
 finally:
     consumer.close()

@@ -1,0 +1,1 @@
+{"iac_labels": ["Conditional", "Configuration Data", "Dependency", "Documentation", "Idempotency", "Security", "Service", "Syntax"], "fault_labels": ["Dependency-related Faults", "Idempotency", "Incorrect Detection/Analysis of User Input", "Incorrect Task Iteration Logic", "State Mismanagement", "Typos", "Variable Misreference"]}

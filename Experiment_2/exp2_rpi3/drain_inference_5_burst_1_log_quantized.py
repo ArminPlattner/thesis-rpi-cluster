@@ -10,8 +10,7 @@ from drain3.template_miner_config import TemplateMinerConfig
 from drain3.masking import MaskingInstruction
 import onnxruntime as ort
 
-# ---------------- CONFIG ----------------
-# Updated to match the exact directory name in your RPI_Cluster_Models folder
+# CONFIG
 MODEL_PATH = "/home/ubuntu/ansible-intelligence/RPI_Cluster_Models/BSc_Thesis_V6_Quantized_DRAIN"
 KAFKA_BOOTSTRAP = "10.42.0.184:32709"
 
@@ -23,13 +22,13 @@ CONFIDENCE_THRESHOLD = 0.90
 MAX_LEN = 256
 CPU_THREADS = 2
 
-# ---------------- LABELS ----------------
+# LABELS
 with open(os.path.join(MODEL_PATH, "labels.json"), "r") as f:
     labels_data = json.load(f)
     iac_labels = labels_data["iac_labels"]
     fault_labels = labels_data["fault_labels"]
 
-# ---------------- DRAIN PARSER SETUP ----------------
+# DRAIN PARSER SETUP 
 config = TemplateMinerConfig()
 config.masking_instructions = [
     MaskingInstruction(r"\*+", "STARS"),
@@ -46,7 +45,7 @@ if os.path.exists(state_bin):
 else:
     template_miner = TemplateMiner(config=config)
 
-# ---------------- ONNX ENGINE SETUP ----------------
+# ONNX ENGINE SETUP
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 onnx_files = [f for f in os.listdir(MODEL_PATH) if f.endswith(".onnx")]
 ONNX_PATH = os.path.join(MODEL_PATH, onnx_files[0])
@@ -113,12 +112,12 @@ def predict_with_safety_gate(raw_log, model_input):
         "is_healable": is_healable, "escalation_reason": reason, "inference_ms": infer_ms
     }
 
-# ---------------- PIPELINE ----------------
+# PIPELINE 
 consumer = Consumer({"bootstrap.servers": KAFKA_BOOTSTRAP, "group.id": "drain-int8-v6", "auto.offset.reset": "latest"})
 producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
 consumer.subscribe([IN_TOPIC])
 
-print(f"📡 DRAIN INT8 ONNX listening active on {IN_TOPIC}...")
+print(f"DRAIN INT8 ONNX listening active on {IN_TOPIC}...")
 
 try:
     while True:

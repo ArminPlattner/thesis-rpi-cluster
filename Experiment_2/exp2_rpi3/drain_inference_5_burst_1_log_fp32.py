@@ -11,7 +11,7 @@ from drain3 import TemplateMiner
 from drain3.template_miner_config import TemplateMinerConfig
 from drain3.masking import MaskingInstruction
 
-# ---------------- CONFIG ----------------
+# CONFIG 
 MODEL_PATH = "/home/ubuntu/ansible-intelligence/RPI_Cluster_Models/BSc_Thesis_Model_v6_WITH_DRAIN_NEW"
 DRAIN_STATE_PATH = os.path.join(MODEL_PATH, "drain_state.bin")
 KAFKA_BOOTSTRAP = "10.42.0.184:32709"
@@ -28,14 +28,14 @@ CPU_THREADS = 2
 torch.set_num_threads(CPU_THREADS)
 torch.set_num_interop_threads(CPU_THREADS)
 
-# ---------------- LABELS ----------------
-print(f"📥 Loading labels from {MODEL_PATH}...")
+# LABELS
+print(f"Loading labels from {MODEL_PATH}...")
 with open(os.path.join(MODEL_PATH, "labels.json"), "r") as f:
     labels_data = json.load(f)
     iac_labels = labels_data["iac_labels"]
     fault_labels = labels_data["fault_labels"]
 
-# ---------------- CUSTOM MULTI-HEAD ARCHITECTURE ----------------
+# CUSTOM MULTI-HEAD ARCHITECTURE
 class MultiHeadTinyBERT(nn.Module):
     def __init__(self, num_iac, num_fault):
         super().__init__()
@@ -59,7 +59,7 @@ class MultiHeadTinyBERT(nn.Module):
         pooled_output = self.dropout(pooled_output)
         return self.iac_head(pooled_output), self.fault_head(pooled_output)
 
-# ---------------- DRAIN PARSER SETUP ----------------
+# DRAIN PARSER SETUP
 config = TemplateMinerConfig()
 config.masking_instructions = [
     MaskingInstruction(r"\*+", "STARS"),
@@ -70,15 +70,15 @@ config.drain_depth = 6
 config.drain_sim_th = 0.7
 
 if os.path.exists(DRAIN_STATE_PATH):
-    print(f"🔄 Restoring Drain tree state structure from {DRAIN_STATE_PATH}...")
+    print(f"Restoring Drain tree state structure from {DRAIN_STATE_PATH}...")
     with open(DRAIN_STATE_PATH, "rb") as f:
         template_miner = pickle.load(f)
 else:
-    print("⚠️ State tree binary missing. Instantiating vanilla TemplateMiner cluster configuration...")
+    print("State tree binary missing. Instantiating vanilla TemplateMiner cluster configuration...")
     template_miner = TemplateMiner(config=config)
 
-# ---------------- LOAD CUSTOM PYTORCH PIPELINE ----------------
-print(f"🔥 Loading un-quantized FP32 Multi-Head PyTorch unified model weights...")
+# LOAD CUSTOM PYTORCH PIPELINE
+print(f"Loading un-quantized FP32 Multi-Head PyTorch unified model weights...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 
 device = torch.device("cpu")
@@ -90,12 +90,12 @@ if os.path.exists(weights_file):
     state = torch.load(weights_file, map_location=device)
     model.load_state_dict(state, strict=True)
 else:
-    raise FileNotFoundError(f"❌ Critical Error: model_weights.bin weights not found at {weights_file}")
+    raise FileNotFoundError(f"Critical Error: model_weights.bin weights not found at {weights_file}")
 
-model.to(device).eval()  # Hard set inference mode
-print("✅ Multi-Head PyTorch Model successfully mapped and structured on Pi3 CPU!")
+model.to(device).eval()  
+print("Multi-Head PyTorch Model successfully mapped and structured on Pi3 CPU!")
 
-# ---------------- HELPERS ----------------
+# HELPERS
 def clean_log(log_line):
     lines = str(log_line).splitlines()
     filtered = [l.strip() for l in lines if l.strip() and not l.strip().startswith("PLAY")]
@@ -175,7 +175,7 @@ def predict_with_safety_gate(raw_log, model_input):
         "inference_ms": inference_ms
     }
 
-# ---------------- KAFKA DATA PIPELINE LOOP ----------------
+# KAFKA DATA PIPELINE LOOP 
 consumer = Consumer({
     "bootstrap.servers": KAFKA_BOOTSTRAP,
     "group.id": "brain-drain-fp32-v5",
