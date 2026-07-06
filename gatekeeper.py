@@ -30,7 +30,7 @@ try:
         if msg is None:
             continue
         if msg.error():
-            print(f"❌ Kafka Consumer Error: {msg.error()}")
+            print(f"Kafka Consumer Error: {msg.error()}")
             continue
 
         try:
