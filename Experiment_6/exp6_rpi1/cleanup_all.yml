@@ -1,6 +1,4 @@
----
 # Cleanup Playbook — Factory Reset for Experiment 6
-# ================================================
 # Ensures pi1 is returned to a clean, default state before the next fault injection.
 
 - name: "Full System Cleanup (pi1)"
@@ -48,7 +46,7 @@
         - /var/log/inject_r7
       ignore_errors: yes
 
-    # 6. Final check: Ensure k3s is healthy (Post-cleanup verification)
+    # 6. Final check: Ensure k3s is healthy 
     - name: "[VERIFY] Check node status"
       ansible.builtin.command: kubectl get nodes
       environment:

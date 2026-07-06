@@ -1,3 +1,0 @@
-# with 1027 anomalies expected
-python3 inference_engine_bursts.py 1027 
-
